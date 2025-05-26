@@ -1,6 +1,5 @@
 import streamlit as st
 import ifcopenshell
-import ifcopenshell.util.element
 import tempfile
 import os
 from collections import defaultdict

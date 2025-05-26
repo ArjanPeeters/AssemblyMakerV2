@@ -1,94 +1,99 @@
+import streamlit as st
 import ifcopenshell
-import tkinter as tk
-from tkinter import filedialog, simpledialog, messagebox
+import ifcopenshell.util.element
+import tempfile
+import os
 from collections import defaultdict
 
-def select_ifc_file():
-    root = tk.Tk()
-    root.withdraw()
-    return filedialog.askopenfilename(
-        title="Selecteer een IFC-bestand",
-        filetypes=[("IFC-bestanden", "*.ifc")]
-    )
+st.set_page_config(page_title="AssemblyMaker", layout="centered")
 
-def save_ifc_file():
-    root = tk.Tk()
-    root.withdraw()
-    return filedialog.asksaveasfilename(
-        title="Sla het gewijzigde IFC-bestand op",
-        defaultextension=".ifc",
-        filetypes=[("IFC-bestanden", "*.ifc")]
-    )
+st.title("🏗️ IFC AssemblyMaker")
+st.markdown("""
+Deze tool maakt automatisch één of meerdere **IfcElementAssembly**-objecten aan op basis van een parameter in een IFC-bestand.
 
-def main():
-    # IFC-bestand selecteren
-    ifc_path = select_ifc_file()
-    if not ifc_path:
-        return
+### ✨ Wat doet deze tool?
+- Je kiest een IFC-bestand
+- Je voert de naam van een parameter in (zoals `Brandwerendheid`)
+- Voor **elke unieke waarde** van die parameter maakt het script een eigen Assembly aan
+- Je downloadt het aangepaste bestand direct
 
-    ifc = ifcopenshell.open(ifc_path)
+""")
 
-    # Vraag om de parameternaam
-    root = tk.Tk()
-    root.withdraw()
-    param_naam = simpledialog.askstring("Parameternaam", "Welke parameter wil je gebruiken om Assemblies te maken?")
+st.markdown("## 📤 Stap 1 – Upload een IFC-bestand")
 
-    if not param_naam:
-        return
+# Upload IFC-bestand knop
+uploaded_file = st.file_uploader("Klik hieronder om een IFC-bestand te selecteren", type=["ifc"], label_visibility="collapsed")
 
-    # Verzamel elementen gegroepeerd op parameterwaarde
-    groepen = defaultdict(list)
+if uploaded_file:
+    # Tijdelijk bestand maken voor verwerking
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".ifc") as tmp_ifc:
+        tmp_ifc.write(uploaded_file.read())
+        tmp_ifc_path = tmp_ifc.name
 
-    for rel in ifc.by_type("IfcRelDefinesByProperties"):
-        prop_set = rel.RelatingPropertyDefinition
-        for prop in getattr(prop_set, "HasProperties", []):
-            if prop.Name == param_naam:
-                waarde = str(prop.NominalValue.wrappedValue)
-                for elem in rel.RelatedObjects:
-                    groepen[waarde].append(elem)
+    # IFC-bestand openen
+    ifc = ifcopenshell.open(tmp_ifc_path)
 
-    if not groepen:
-        messagebox.showinfo("Geen elementen gevonden", f"Geen elementen gevonden met de parameter: {param_naam}")
-        return
+    st.markdown("## 🧮 Stap 2 – Voer een parameternaam in")
+    param_naam = st.text_input("Bijvoorbeeld: Brandwerendheid, Afwerking, Materiaal", placeholder="Typ hier de naam van de parameter")
 
-    # IFC context
-    project = ifc.by_type("IfcProject")[0]
-    site = ifc.by_type("IfcSite")[0]
-    owner_history = ifc.by_type("IfcOwnerHistory")[0]
+    if param_naam:
+        # Zoek elementen op basis van parameterwaarde
+        groepen = defaultdict(list)
 
-    for waarde, elementen in groepen.items():
-        assembly = ifc.create_entity("IfcElementAssembly",
-            GlobalId=ifcopenshell.guid.new(),
-            OwnerHistory=owner_history,
-            Name=f"{param_naam}: {waarde}",
-            ObjectType="Assembly",
-            ObjectPlacement=site.ObjectPlacement,
-            Representation=None,
-            AssemblyPlace="SITE",
-            PredefinedType="USERDEFINEDp"
-        )
+        for rel in ifc.by_type("IfcRelDefinesByProperties"):
+            prop_set = rel.RelatingPropertyDefinition
+            for prop in getattr(prop_set, "HasProperties", []):
+                if prop.Name == param_naam:
+                    waarde = str(prop.NominalValue.wrappedValue)
+                    for elem in rel.RelatedObjects:
+                        groepen[waarde].append(elem)
 
-        ifc.create_entity("IfcRelAggregates",
-            GlobalId=ifcopenshell.guid.new(),
-            OwnerHistory=owner_history,
-            RelatingObject=site,
-            RelatedObjects=[assembly]
-        )
+        if not groepen:
+            st.warning(f"Geen elementen gevonden met parameternaam '{param_naam}'.")
+        else:
+            st.success(f"Gevonden waarden voor '{param_naam}': {', '.join(groepen.keys())}")
+            st.markdown("## 🏗️ Stap 3 – Maak Assemblies aan")
 
-        ifc.create_entity("IfcRelAggregates",
-            GlobalId=ifcopenshell.guid.new(),
-            OwnerHistory=owner_history,
-            RelatingObject=assembly,
-            RelatedObjects=elementen
-        )
+            if st.button("🔧 Assemblies genereren"):
+                project = ifc.by_type("IfcProject")[0]
+                site = ifc.by_type("IfcSite")[0]
+                owner_history = ifc.by_type("IfcOwnerHistory")[0]
 
-    # Opslaan
-    save_path = save_ifc_file()
-    if save_path:
-        ifc.write(save_path)
-        messagebox.showinfo("Succes", f"Assemblies aangemaakt op basis van '{param_naam}' en opgeslagen naar:\n{save_path}")
-    else:
-        print("Geen opslagpad gekozen. Bestand niet opgeslagen.")
+                for waarde, elementen in groepen.items():
+                    assembly = ifc.create_entity("IfcElementAssembly",
+                        GlobalId=ifcopenshell.guid.new(),
+                        OwnerHistory=owner_history,
+                        Name=f"{param_naam}: {waarde}",
+                        ObjectType="Assembly",
+                        ObjectPlacement=site.ObjectPlacement,
+                        Representation=None,
+                        AssemblyPlace="SITE",
+                        PredefinedType="USERDEFINED"
+                    )
 
-if __name__ == "__main__":
-    main()
+                    ifc.create_entity("IfcRelAggregates",
+                        GlobalId=ifcopenshell.guid.new(),
+                        OwnerHistory=owner_history,
+                        RelatingObject=site,
+                        RelatedObjects=[assembly]
+                    )
+
+                    ifc.create_entity("IfcRelAggregates",
+                        GlobalId=ifcopenshell.guid.new(),
+                        OwnerHistory=owner_history,
+                        RelatingObject=assembly,
+                        RelatedObjects=elementen
+                    )
+
+                # Tijdelijk bestand maken om te downloaden
+                result_path = tmp_ifc_path.replace(".ifc", "_assemblies.ifc")
+                ifc.write(result_path)
+
+                with open(result_path, "rb") as f:
+                    st.markdown("## 💾 Stap 4 – Download je aangepaste bestand")
+                    st.download_button(
+                        label="📥 Download aangepast IFC-bestand",
+                        data=f,
+                        file_name=os.path.basename(result_path),
+                        mime="application/octet-stream"
+                    )

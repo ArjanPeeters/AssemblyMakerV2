@@ -54,7 +54,7 @@ if uploaded_file:
             if st.button("🔧 Assemblies genereren"):
                 try:
                     project = ifc.by_type("IfcProject")[0]
-                    site = ifc.by_type("IfcSite")[0]
+                    building = ifc.by_type("IfcBuilding")[0]
                     owner_history = ifc.by_type("IfcOwnerHistory")[0]
 
                     for waarde, elementen in groepen.items():
@@ -63,16 +63,16 @@ if uploaded_file:
                             OwnerHistory=owner_history,
                             Name=f"{param_naam}: {waarde}",
                             ObjectType="Assembly",
-                            ObjectPlacement=site.ObjectPlacement,
+                            ObjectPlacement=building.ObjectPlacement,
                             Representation=None,
-                            AssemblyPlace="BUILDING",
+                            AssemblyPlace="SITE",
                             PredefinedType="USERDEFINED"
                         )
 
                         ifc.create_entity("IfcRelAggregates",
                             GlobalId=ifcopenshell.guid.new(),
                             OwnerHistory=owner_history,
-                            RelatingObject=site,
+                            RelatingObject=building,
                             RelatedObjects=[assembly]
                         )
 
